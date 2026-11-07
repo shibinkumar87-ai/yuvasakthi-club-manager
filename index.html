@@ -42,7 +42,7 @@
  <label for="loginEmail">Email</label><input id="loginEmail" type="email" autocomplete="username" placeholder="Registered email">
  <label for="loginPassword">Password</label><input id="loginPassword" type="password" autocomplete="current-password" placeholder="Firebase password">
  <div class="auth-actions"><button id="loginButton" onclick="clubLogin()">Login</button><button class="muted" onclick="resetClubPassword()">Forgot Password</button></div>
- <div id="authStatus">Login ചെയ്യാൻ Firebase Authentication-ൽ രജിസ്റ്റർ ചെയ്ത Email/Password ഉപയോഗിക്കുക.</div>
+ <div id="authStatus">Login ചെയ്യാൻ Firebase Authentication-ൽ രജിസ്റ്റർ ചെയ്ത Email/Password ഉപയോഗിക്കുക.</div><p class="note">Login വിജയിച്ചാൽ മാത്രമേ അംഗങ്ങളുടെയും വരവ്–ചെലവിന്റെയും വിവരങ്ങൾ കാണൂ. Logout ചെയ്താൽ ഈ സ്ക്രീനിലെ വിവരങ്ങൾ മറയ്ക്കും; സേവ് ചെയ്ത ഡാറ്റ ഇല്ലാതാക്കില്ല.</p>
 </section>
 <div class="cloud-bar hidden" id="cloudBar"><span id="cloudStatus">Cloud Sync: Waiting</span><button class="gold hidden" id="uploadLocalButton" onclick="uploadLocalDataToCloud()">Upload Local Data</button><button class="muted" onclick="clubLogout()">Logout</button></div>
 <main class="content" id="appMain" style="display:none">
@@ -104,9 +104,38 @@ async function startCloudSync(user){cloudUser=user;cloudDoc=firebase.firestore()
  cloudReady=true;if(cloudUnsubscribe)cloudUnsubscribe();cloudUnsubscribe=cloudDoc.onSnapshot(s=>{if(!s.exists||!s.data()||!s.data().data||cloudWriteBusy)return;const incoming=s.data().data;const incomingText=JSON.stringify(incoming);if(incomingText!==JSON.stringify(data)){data=incoming;data.members=data.members||[];data.payments=data.payments||{};data.seq=data.seq||0;data.transactions=data.transactions||[];renderAfterCloudLoad();setCloudStatus('Cloud Sync: Updated from another device ✓')}} ,e=>setCloudStatus('Cloud Sync Error: '+e.message));
  }catch(e){cloudReady=false;setCloudStatus('Cloud Sync Error: '+(e.message||e));document.getElementById('authStatus').textContent='Cloud Database access error: '+(e.message||e)+'. Firestore Rules പരിശോധിക്കുക.'}}
 async function uploadLocalDataToCloud(){if(!cloudDoc||!cloudUser)return;if(!confirm('ഈ ഫോണിലെ നിലവിലെ ഡാറ്റ Cloud-ലേക്ക് Upload ചെയ്യട്ടേ? Cloud-ൽ നിലവിലുള്ള ഡാറ്റ ഉണ്ടെങ്കിൽ അത് മാറ്റിസ്ഥാപിക്കും.'))return;cloudReady=true;document.getElementById('uploadLocalButton').classList.add('hidden');await pushCloudData();if(cloudReady&&cloudUnsubscribe===null)cloudUnsubscribe=cloudDoc.onSnapshot(s=>{if(s.exists&&s.data()?.data&&!cloudWriteBusy){data=s.data().data;renderAfterCloudLoad()}},e=>setCloudStatus('Cloud Sync Error: '+e.message))}
-async function clubLogin(){const email=document.getElementById('loginEmail').value.trim(),password=document.getElementById('loginPassword').value,btn=document.getElementById('loginButton');if(!email||!password){document.getElementById('authStatus').textContent='Email-ഉം Password-ഉം നൽകുക.';return}btn.disabled=true;document.getElementById('authStatus').textContent='Login ചെയ്യുന്നു…';try{await firebase.auth().signInWithEmailAndPassword(email,password)}catch(e){document.getElementById('authStatus').textContent='Login പരാജയപ്പെട്ടു: '+(e.message||e)}finally{btn.disabled=false}}
+async function clubLogin(){
+ const email=document.getElementById('loginEmail').value.trim(),password=document.getElementById('loginPassword').value,btn=document.getElementById('loginButton');
+ if(!email||!password){document.getElementById('authStatus').textContent='Email-ഉം Password-ഉം നൽകുക.';return}
+ btn.disabled=true;document.getElementById('authStatus').textContent='Login ചെയ്യുന്നു…';
+ try{
+  await firebase.auth().setPersistence(firebase.auth.Auth.Persistence.SESSION);
+  await firebase.auth().signInWithEmailAndPassword(email,password);
+  document.getElementById('loginPassword').value='';
+ }catch(e){document.getElementById('authStatus').textContent='Login പരാജയപ്പെട്ടു: '+(e.message||e)}
+ finally{btn.disabled=false}
+}
 async function resetClubPassword(){const email=document.getElementById('loginEmail').value.trim();if(!email){alert('ആദ്യം Email നൽകുക.');return}try{await firebase.auth().sendPasswordResetEmail(email);alert('Password reset link ഈ Email-ലേക്ക് അയച്ചു.')}catch(e){alert('Reset അയക്കാനായില്ല: '+e.message)}}
-async function clubLogout(){if(!confirm('Logout ചെയ്യട്ടേ?'))return;try{if(cloudUnsubscribe)cloudUnsubscribe();cloudReady=false;cloudUser=null;cloudDoc=null;await firebase.auth().signOut()}catch(e){alert(e.message)}}
+function clearPrivateScreen(){
+ const main=document.getElementById('appMain');
+ if(main){
+  main.querySelectorAll('input,select,textarea').forEach(el=>{if(el.type==='checkbox')el.checked=false;else el.value=''});
+  ['members','transactions'].forEach(id=>{const el=document.getElementById(id);if(el)el.innerHTML=''});
+  ['count','collection','totalIncome','totalExpense','balance','monthIncome','monthExpense','monthBalance'].forEach(id=>{const el=document.getElementById(id);if(el)el.textContent='—'});
+  const receipt=document.getElementById('receipt');if(receipt)receipt.innerHTML='';
+  main.style.display='none';
+ }
+ document.getElementById('loginEmail').value='';
+ document.getElementById('loginPassword').value='';
+}
+async function clubLogout(){
+ if(!confirm('Logout ചെയ്യട്ടേ?'))return;
+ try{
+  if(cloudUnsubscribe){cloudUnsubscribe();cloudUnsubscribe=null}
+  clearTimeout(cloudSaveTimer);cloudReady=false;cloudUser=null;cloudDoc=null;
+  await firebase.auth().signOut();
+ }catch(e){alert(e.message)}
+}
 function save(){localSave();if(cloudReady&&cloudDoc){clearTimeout(cloudSaveTimer);cloudSaveTimer=setTimeout(()=>pushCloudData(),650)}render()}
 function addMember(){const n=document.getElementById('name').value.trim(),p=document.getElementById('phone').value.trim();if(!n){alert('അംഗത്തിന്റെ പേര് നൽകുക');return}data.members.push({id:Date.now(),name:n,phone:p});document.getElementById('name').value='';document.getElementById('phone').value='';save()}
 function key(id){return month.value+'_'+id}
@@ -149,7 +178,14 @@ function restorePreviousLocalBackup(){
 }
 function render(){let paid=0;document.getElementById('count').textContent=data.members.length;const box=document.getElementById('members');box.innerHTML='';data.members.forEach(m=>{const k=key(m.id),yes=!!data.payments[k];if(yes)paid+=100;const d=document.createElement('div');d.className='member';d.innerHTML='<div class="row"><div><strong></strong><small></small></div><span class="pill '+(yes?'paid':'')+'">'+(yes?'Paid':'Pending')+'</span></div><div class="actions"><button class="'+(yes?'muted':'gold')+'">'+(yes?'രസീത് കാണുക':'₹100 സ്വീകരിക്കുക')+'</button><button class="muted">പേര് നീക്കുക</button></div>';d.querySelector('strong').textContent=m.name;d.querySelector('small').textContent=m.phone||'മൊബൈൽ നമ്പർ ചേർത്തിട്ടില്ല';const bs=d.querySelectorAll('button');bs[0].onclick=()=>{if(!yes){data.seq++;data.payments[k]={receipt:data.seq,date:new Date().toLocaleDateString('en-IN'),amount:100};data.transactions.push({id:'fee_'+k,type:'income',category:'Monthly Membership Fee',amount:100,date:todayISO,note:'മാസവരി – '+m.name,mode:'Cash',source:'fee',sourceKey:k})}const r=data.payments[k];document.getElementById('receipt').innerHTML=`<div class="receipt-rail" aria-hidden="true"></div><div class="receipt-content"><div class="receipt-head"><img class="receipt-crest" src="${document.getElementById('receiptLogo').src}" alt="Yuvasakthi club logo"><div class="receipt-club"><h3>യുവശക്തി ആർട്സ് &amp; സ്പോർട്സ് ക്ലബ്</h3><div class="place">കുമാരമംഗലം</div><div class="reg">Reg No : IDK/6/2026</div><div class="slogan">Together for a Stronger Community...</div></div></div><div class="receipt-banner">MONTHLY FEE RECEIPT</div><div class="receipt-line"><span>Receipt No</span><b>YS/2026/${String(r.receipt).padStart(4,'0')}</b></div><div class="receipt-line"><span>Date</span><b>${r.date||new Date().toLocaleDateString('en-IN')}</b></div><div class="rule"></div><div class="receipt-line"><span>Member Name</span><b>${escapeHtml(m.name)}</b></div><div class="receipt-line"><span>Mobile No</span><b>${escapeHtml(m.phone||'—')}</b></div><div class="rule"></div><div class="receipt-line"><span>Month</span><b>${new Date(month.value+'-01T00:00:00').toLocaleDateString('en-IN',{month:'long',year:'numeric'})}</b></div><div class="receipt-line"><span>Membership Fee</span><b class="fee">₹${Number(r.amount||100).toLocaleString('en-IN')}/-</b></div><div class="amount-box"><strong>Amount Received : ₹${Number(r.amount||100).toLocaleString('en-IN')}/-</strong><em>(Rupees Only)</em></div><div class="receipt-line"><span>Payment Mode</span><b>Cash / UPI / Others</b></div><div class="receipt-line"><span>Received By</span><b>Shibin Kumar</b></div><div class="thanks">Thank you for your valuable support...</div><div class="sign-row"><span>Secretary</span><span>President</span></div><div class="motto">PLAY&nbsp; • &nbsp;PARTICIPATE&nbsp; • &nbsp;GROW TOGETHER</div></div>`;document.getElementById('rName').textContent=m.name;document.getElementById('rMonth').textContent=month.value;document.getElementById('rNo').textContent=String(r.receipt);save()};bs[1].onclick=()=>{if(confirm(m.name+' എന്ന അംഗത്തെ നീക്കട്ടേ?')){data.members=data.members.filter(x=>x.id!==m.id);save()}};box.append(d)});document.getElementById('collection').textContent=money(paid);const all=sums(data.transactions);document.getElementById('totalIncome').textContent=money(all.income);document.getElementById('totalExpense').textContent=money(all.expense);const bal=all.income-all.expense;document.getElementById('balance').textContent=money(bal);document.getElementById('balance').className=bal<0?'money-out':'money-in'}
 function escapeHtml(s){return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
-month.addEventListener('change',render);render();renderTransactions();renderReport();
-const firebaseConfig={apiKey:'AIzaSyCXnXlZ-bS4yjQVQzTHoJCGxx4o3NHDdHM',authDomain:'yuvasakthi-club-manager.firebaseapp.com',projectId:'yuvasakthi-club-manager',storageBucket:'yuvasakthi-club-manager.firebasestorage.app',messagingSenderId:'496504078844',appId:'1:496504078844:web:23abd1d5a42d58c69ff279',measurementId:'G-61P2JCL755'};
-try{firebase.initializeApp(firebaseConfig);firebase.auth().onAuthStateChanged(async user=>{const authPanel=document.getElementById('authPanel'),cloudBar=document.getElementById('cloudBar'),appMain=document.getElementById('appMain');if(user){authPanel.classList.add('hidden');cloudBar.classList.remove('hidden');document.getElementById('uploadLocalButton').classList.add('hidden');appMain.style.display='block';setCloudStatus('Logged in: '+user.email+' · Cloud Sync starting…');await startCloudSync(user)}else{cloudReady=false;cloudUser=null;cloudDoc=null;authPanel.classList.remove('hidden');cloudBar.classList.add('hidden');appMain.style.display='none';document.getElementById('authStatus').textContent='Firebase അക്കൗണ്ട് ഉപയോഗിച്ച് Login ചെയ്യുക.'}})}catch(e){document.getElementById('authStatus').textContent='Firebase initialization error: '+e.message}
+month.addEventListener('change',render);
+const firebaseConfig={apiKey:'AIzaSyCXnXlZ-BS4yjQVQzTHoJCGxx4o3NHDdHM',authDomain:'yuvasakthi-club-manager.firebaseapp.com',projectId:'yuvasakthi-club-manager',storageBucket:'yuvasakthi-club-manager.firebasestorage.app',messagingSenderId:'496504078844',appId:'1:496504078844:web:23abd1d5a42d58c69ff279',measurementId:'G-61P2JCL755'};
+try{firebase.initializeApp(firebaseConfig);firebase.auth().onAuthStateChanged(async user=>{const authPanel=document.getElementById('authPanel'),cloudBar=document.getElementById('cloudBar'),appMain=document.getElementById('appMain');if(user){
+ authPanel.classList.add('hidden');cloudBar.classList.remove('hidden');document.getElementById('uploadLocalButton').classList.add('hidden');
+ appMain.style.display='block';month.value=todayISO.slice(0,7);document.getElementById('txDate').value=todayISO;document.getElementById('txMonth').value=month.value;document.getElementById('reportMonth').value=month.value;
+ renderAfterCloudLoad();setCloudStatus('Logged in: '+user.email+' · Cloud Sync starting…');await startCloudSync(user);
+}else{
+ cloudReady=false;cloudUser=null;cloudDoc=null;authPanel.classList.remove('hidden');cloudBar.classList.add('hidden');
+ clearPrivateScreen();appMain.style.display='none';document.getElementById('authStatus').textContent='Firebase അക്കൗണ്ട് ഉപയോഗിച്ച് Login ചെയ്യുക.';
+}})}catch(e){document.getElementById('authStatus').textContent='Firebase initialization error: '+e.message}
 </script></body></html>
